@@ -9,7 +9,7 @@ from app.db import db
 
 if TYPE_CHECKING:
     # imports that are used only for type checking to avoid circular dependencies
-    from app.models import Investment, Transaction, User
+    from app.models import Investment, PortfolioAccess, Transaction, User
 
 
 class Portfolio(db.Model):
@@ -21,9 +21,16 @@ class Portfolio(db.Model):
 
     investments: Mapped[List['Investment']] = relationship('Investment', back_populates='portfolio', lazy='selectin')
 
-    user: Mapped['User'] = relationship('User', foreign_keys=[owner], back_populates='portfolios', lazy='selectin')
+    user: Mapped['User'] = relationship(
+        'User', 
+        primaryjoin='Portfolio.owner == User.username',
+        back_populates='portfolios', 
+        lazy='selectin'
+    )
 
     transactions: Mapped[List['Transaction']] = relationship('Transaction', back_populates='portfolio', lazy='selectin')
+
+    access_grants: Mapped[List['PortfolioAccess']] = relationship('PortfolioAccess', back_populates='portfolio', lazy='selectin', cascade='all, delete-orphan')
 
     # this is needed because PyLance cannot infer the constructor signature from SQLAlchemy's Mapped class
     if TYPE_CHECKING:
@@ -48,7 +55,7 @@ class Portfolio(db.Model):
                     'quantity': investment.quantity,
                 }
             )
-        return f'<Portfolio: id={self.id}; name={self.name}; description={self.description}; user={username}; investments={", ".join(investments)}>'
+        return f'<Portfolio: id={self.id}; name={self.name}; description={self.description}; user={username}; investments={", ".join(str(i) for i in investments)}>'
 
     def __to_dict__(self):
         investments = []

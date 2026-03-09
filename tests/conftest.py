@@ -5,54 +5,64 @@ from pathlib import Path
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
-from typing import Generator
 
-import app.database as db
 import pytest
-from app.database import Base
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
 
+from app import create_app
+from app.config import TestConfig
+from app.db import db
 from app.models import Security, User
 
 
 @pytest.fixture(scope='session')
-def engine():
-    """
-    create an in-memory database that is available for use in the entire test session.
-    initialize the database with tables.
-    """
-    eng = create_engine('sqlite+pysqlite:///:memory:', future=True, echo=False)
-
-    # initialize all database objects
-    Base.metadata.create_all(eng)
-
-    yield eng
-    eng.dispose()
+def app():
+    """Create and configure a new app instance for each test session."""
+    app = create_app(TestConfig)
+    
+    with app.app_context():
+        # Create all database tables
+        db.create_all()
+        yield app
+        # Drop all database tables after session completes
+        db.drop_all()
 
 
 @pytest.fixture(scope='session')
-def connection(engine):
-    with engine.connect() as conn:
-        yield conn
+def client(app):
+    """A test client for the app."""
+    return app.test_client()
 
+
+from sqlalchemy.orm import scoped_session, sessionmaker
 
 @pytest.fixture(scope='function')
-def db_session(connection, monkeypatch) -> Generator[Session]:
-    trans = connection.begin()
+def db_session(app, monkeypatch):
+    """
+    A fixture that creates a new database session for a test and rolls back
+    any changes after the test completes, maintaining an isolated test state.
+    """
+    with app.app_context():
+        # Start a transaction on the actual DB engine
+        connection = db.engine.connect()
+        transaction = connection.begin()
+        
+        # Bind the session to the connection
+        session_factory = sessionmaker(bind=connection)
+        session = scoped_session(session_factory)
+        
+        # Monkeypatch db.session to use this isolated local session
+        # This ensures all calls to db.session in the app use our test session
+        monkeypatch.setattr(db, 'session', session)
+        
+        # Populate initial test data
+        _populate_database(session)
 
-    TestingSessionLocal = sessionmaker(bind=connection, autoflush=False, autocommit=False, expire_on_commit=False)
-
-    session = TestingSessionLocal()
-    _populate_database(session)
-
-    monkeypatch.setattr(db, 'get_session', lambda: session, raising=True)
-
-    try:
         yield session
-    finally:
-        trans.rollback()
-        session.close()
+
+        # Tidy up local session and rollback transaction
+        session.remove()
+        transaction.rollback()
+        connection.close()
 
 
 def _populate_database(session):
@@ -66,7 +76,7 @@ def _populate_database(session):
             Security(ticker='MSFT', issuer='Microsoft Corp.', price=300.00),
         ]
         session.add_all(securities)
+        # We must flush to ensure the objects are available inside the transaction
+        session.flush() 
     except Exception:
         session.rollback()
-    finally:
-        session.commit()

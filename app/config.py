@@ -6,7 +6,17 @@ load_dotenv()
 
 
 class Config:
-    pass
+    # Flask-Caching defaults
+    CACHE_TYPE = 'SimpleCache'
+    CACHE_DEFAULT_TIMEOUT = 86400  # 24 hours
+
+    # Alpha Vantage
+    ALPHAVANTAGE_API_KEY = os.environ.get('ALPHAVANTAGE_API_KEY', '')
+
+    # AWS Cognito OIDC
+    COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', '')
+    COGNITO_APP_CLIENT_ID = os.environ.get('COGNITO_APP_CLIENT_ID', '')
+    COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
 
 
 class TestConfig(Config):
